@@ -21,9 +21,32 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
-// Получение данных об играх
-$sql = "SELECT id, title, description, requirements, genre, release_date FROM games";
-$result = $conn->query($sql);
+// Обработка фильтров
+$genre_filter = isset($_GET['genre']) ? $_GET['genre'] : '';
+$date_filter = isset($_GET['date']) ? $_GET['date'] : '';
+
+$sql = "SELECT id, title, description, requirements, genre, release_date FROM games WHERE 1=1";
+
+if (!empty($genre_filter)) {
+    $sql .= " AND genre = ?";
+}
+
+if (!empty($date_filter)) {
+    $sql .= " AND release_date >= ?";
+}
+
+$stmt = $conn->prepare($sql);
+
+if (!empty($genre_filter) && !empty($date_filter)) {
+    $stmt->bind_param("ss", $genre_filter, $date_filter);
+} elseif (!empty($genre_filter)) {
+    $stmt->bind_param("s", $genre_filter);
+} elseif (!empty($date_filter)) {
+    $stmt->bind_param("s", $date_filter);
+}
+
+$stmt->execute();
+$result = $stmt->get_result();
 
 ?>
 
@@ -65,74 +88,75 @@ $result = $conn->query($sql);
             background-color: #45a049;
         }
 
-        /* Стили для модального окна */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgb(0,0,0);
-            background-color: rgba(0,0,0,0.4);
-            padding-top: 60px;
-        }
-
-        .modal-content {
-            background-color: #fefefe;
-            margin: 5% auto;
-            padding: 20px;
-            border: 1px solid #888;
-            width: 80%;
-            max-width: 400px;
+        .filter-form {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
             border-radius: 8px;
         }
 
-        .close {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-        }
-
-        .close:hover,
-        .close:focus {
-            color: black;
-            text-decoration: none;
-            cursor: pointer;
-        }
-
-        .input-group {
-            margin-bottom: 15px;
-        }
-
-        .input-group label {
+        .filter-form label {
             display: block;
             margin-bottom: 5px;
             color: #333;
         }
 
-        .input-group input {
+        .filter-form select, .filter-form input {
             width: 100%;
             padding: 10px;
+            margin-bottom: 10px;
             border: 1px solid #ccc;
             border-radius: 4px;
         }
 
-        .modal button {
-            width: 100%;
-            padding: 10px;
-            background-color: #4CAF50;
+        .filter-form button {
+            background-color: #007BFF;
             color: white;
+            padding: 10px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
         }
 
-        .modal button:hover {
+        .filter-form button:hover {
+            background-color: #0056b3;
+        }
+
+        .review-form {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        .review-form label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .review-form textarea {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .review-form button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .review-form button:hover {
             background-color: #45a049;
         }
     </style>
@@ -141,6 +165,23 @@ $result = $conn->query($sql);
     <div class="container">
         <div class="login-form">
             <h2>Available Games</h2>
+            <form class="filter-form" method="GET" action="games.php">
+                <label for="genre">Filter by Genre:</label>
+                <select id="genre" name="genre">
+                    <option value="">All Genres</option>
+                    <option value="Action" <?php if($genre_filter == 'Action') echo 'selected'; ?>>Action</option>
+                    <option value="Adventure" <?php if($genre_filter == 'Adventure') echo 'selected'; ?>>Adventure</option>
+                    <option value="RPG" <?php if($genre_filter == 'RPG') echo 'selected'; ?>>RPG</option>
+                    <option value="Strategy" <?php if($genre_filter == 'Strategy') echo 'selected'; ?>>Strategy</option>
+                    <!-- Добавьте другие жанры по мере необходимости -->
+                </select>
+                
+                <label for="date">Filter by Release Date:</label>
+                <input type="date" id="date" name="date" value="<?php echo $date_filter; ?>">
+
+                <button type="submit">Apply Filters</button>
+            </form>
+
             <?php
             if ($result->num_rows > 0) {
                 while($row = $result->fetch_assoc()) {
@@ -150,7 +191,38 @@ $result = $conn->query($sql);
                     echo "<p><strong>Requirements:</strong> " . $row['requirements'] . "</p>";
                     echo "<p><strong>Genre:</strong> " . $row['genre'] . "</p>";
                     echo "<p><strong>Release Date:</strong> " . $row['release_date'] . "</p>";
-                    echo "<button onclick='openModal(" . $row['id'] . ")'>Предзаказ</button>";
+                    echo "<button onclick='openModal(" . $row['id'] . ")'>Pre-order</button>";
+                    
+                    // Отзывы
+                    $game_id = $row['id'];
+                    $sql_reviews = "SELECT username, review_text, created_at FROM reviews WHERE game_id = ?";
+                    $stmt_reviews = $conn->prepare($sql_reviews);
+                    $stmt_reviews->bind_param("i", $game_id);
+                    $stmt_reviews->execute();
+                    $result_reviews = $stmt_reviews->get_result();
+                    
+                    echo "<div class='reviews'>";
+                    echo "<h4>Reviews:</h4>";
+                    if ($result_reviews->num_rows > 0) {
+                        while($review = $result_reviews->fetch_assoc()) {
+                            echo "<div class='review'>";
+                            echo "<p><strong>" . $review['username'] . "</strong> (" . $review['created_at'] . "): " . $review['review_text'] . "</p>";
+                            echo "</div>";
+                        }
+                    } else {
+                        echo "<p>No reviews yet.</p>";
+                    }
+                    echo "</div>";
+
+                    echo "<div class='review-form'>";
+                    echo "<h4>Leave a Review:</h4>";
+                    echo "<form action='submit_review.php' method='POST'>";
+                    echo "<input type='hidden' name='game_id' value='" . $row['id'] . "'>";
+                    echo "<textarea name='review_text' rows='4' required></textarea>";
+                    echo "<button type='submit'>Submit Review</button>";
+                    echo "</form>";
+                    echo "</div>";
+
                     echo "</div>";
                 }
             } else {
@@ -164,14 +236,14 @@ $result = $conn->query($sql);
     <div id="modal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal()">&times;</span>
-            <h2>Предзаказ</h2>
+            <h2>Pre-order</h2>
             <form id="preorderForm">
                 <input type="hidden" id="gameId" name="game_id">
                 <div class="input-group">
-                    <label for="phone">Номер телефона</label>
+                    <label for="phone">Phone Number</label>
                     <input type="text" id="phone" name="phone" required>
                 </div>
-                <button type="submit">Отправить</button>
+                <button type="submit">Submit</button>
             </form>
         </div>
     </div>
@@ -188,26 +260,25 @@ $result = $conn->query($sql);
 
         document.getElementById('preorderForm').addEventListener('submit', function(event) {
             event.preventDefault();
-            var gameId = document.getElementById('gameId').value;
-            var phone = document.getElementById('phone').value;
 
-            var xhr = new XMLHttpRequest();
-            xhr.open("POST", "preorder.php", true);
-            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            const formData = new FormData(this);
 
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState == 4 && xhr.status == 200) {
-                    alert("Спасибо за отклик, менеджер свяжется с вами в ближайшее время.");
-                    closeModal();
-                }
-            };
-
-            xhr.send("game_id=" + gameId + "&phone=" + phone);
+            fetch('preorder.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.text())
+            .then(data => {
+                alert(data);
+                closeModal();
+            })
+            .catch(error => console.error('Error:', error));
         });
     </script>
 </body>
 </html>
 
 <?php
+$stmt->close();
 $conn->close();
 ?>
